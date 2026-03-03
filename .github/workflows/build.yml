@@ -12,34 +12,65 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Java 17
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Install Python
+      # Python (Buildozer가 안정적으로 돌아가게)
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
+      # Android SDK + sdkmanager 준비
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 필요한 SDK 패키지 설치 + 라이선스 자동 동의 (프리뷰 안 씀)
+      - name: Install Android SDK packages (stable)
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+      # buildozer 설치
       - name: Install Buildozer
         run: |
           pip install --upgrade pip
           pip install cython buildozer
 
-      - name: Initialize Buildozer
+      # buildozer.spec 생성 + 핵심: build-tools 버전 고정
+      - name: Configure Buildozer (pin build-tools)
         run: |
           buildozer init
-          sed -i 's/title = .*/title = Parental Report/' buildozer.spec
-          sed -i 's/package.name = .*/package.name = parentalreport/' buildozer.spec
-          sed -i 's/package.domain = .*/package.domain = org.kimjoo/' buildozer.spec
-          sed -i 's/requirements = .*/requirements = python3,kivy,pyjnius/' buildozer.spec
-          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
-          sed -i 's/# android.minapi = .*/android.minapi = 24/' buildozer.spec
+
+          # 기본 정보
+          sed -i 's/^title = .*/title = Parental Report/' buildozer.spec
+          sed -i 's/^package.name = .*/package.name = parentalreport/' buildozer.spec
+          sed -i 's/^package.domain = .*/package.domain = org.kimjoo/' buildozer.spec
+
+          # 의존성
+          sed -i 's/^requirements = .*/requirements = python3,kivy,pyjnius/' buildozer.spec
+
+          # Android 버전
+          sed -i 's/^# *android.api = .*/android.api = 33/' buildozer.spec
+          sed -i 's/^# *android.minapi = .*/android.minapi = 24/' buildozer.spec
+
+          # ✅ 여기 2줄이 핵심: 프리뷰(37-rc2) 절대 안 쓰게 고정
+          if ! grep -q '^android.build_tools_version' buildozer.spec; then
+            echo 'android.build_tools_version = 33.0.2' >> buildozer.spec
+          else
+            sed -i 's/^android.build_tools_version.*/android.build_tools_version = 33.0.2/' buildozer.spec
+          fi
+
+          # (선택) 빌드가 꼬였을 때 캐시 제거 — 처음 1회만 켜도 됨
+          # rm -rf .buildozer ~/.buildozer
 
       - name: Build APK
-        run: buildozer android debug
+        run: |
+          buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
