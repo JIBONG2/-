@@ -12,16 +12,23 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3-pip build-essential git zip unzip openjdk-17-jdk libffi-dev libssl-dev
+          sudo apt install -y \
+            python3-pip build-essential git zip unzip \
+            openjdk-17-jdk \
+            libffi-dev libssl-dev \
+            libsqlite3-dev zlib1g-dev
 
-      - name: Install buildozer
+      - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip
-          pip3 install cython
-          pip3 install buildozer
+          pip3 install cython buildozer
+
+      - name: Accept Android licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
       - name: Init buildozer
         run: |
@@ -30,10 +37,12 @@ jobs:
           sed -i 's/package.name = .*/package.name = parentalreport/' buildozer.spec
           sed -i 's/package.domain = .*/package.domain = org.kimjoo/' buildozer.spec
           sed -i 's/requirements = .*/requirements = python3,kivy,pyjnius/' buildozer.spec
+          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
+          sed -i 's/# android.minapi = .*/android.minapi = 24/' buildozer.spec
 
       - name: Build debug APK
         run: |
-          buildozer -v android debug
+          buildozer android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
