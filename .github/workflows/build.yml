@@ -2,8 +2,8 @@ name: Build APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+  workflow_dispatch: {}
 
 jobs:
   build:
@@ -12,53 +12,84 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system deps
         run: |
           sudo apt update
           sudo apt install -y \
             python3-pip build-essential git zip unzip \
             openjdk-17-jdk \
             libffi-dev libssl-dev \
-            libsqlite3-dev zlib1g-dev \
-            pkg-config
+            autoconf automake libtool pkg-config \
+            zlib1g-dev liblzma-dev \
+            libncurses5-dev libncursesw5-dev \
+            libreadline-dev libsqlite3-dev
 
-      - name: Install Python dependencies
+      - name: Install python deps
         run: |
-          pip3 install --upgrade pip
-          pip3 install cython buildozer
+          python3 -m pip install --upgrade pip
+          python3 -m pip install cython buildozer
 
-      - name: Install Android cmdline-tools (sdkmanager)
+      - name: Setup Android SDK (cmdline-tools)
         run: |
-          mkdir -p "$HOME/android-sdk/cmdline-tools"
-          cd "$HOME/android-sdk"
+          set -e
+          export ANDROID_SDK_ROOT="$HOME/android-sdk"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+
+          cd "$ANDROID_SDK_ROOT"
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d "$HOME/android-sdk/cmdline-tools"
-          mv "$HOME/android-sdk/cmdline-tools/cmdline-tools" "$HOME/android-sdk/cmdline-tools/latest"
-          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+          unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
 
-      - name: Accept licenses and install SDK packages
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROIDSDK=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+
+      - name: Accept licenses + Install required SDK packages
         run: |
+          set -e
           yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
+
+          # 꼭 필요한 것들 + build-tools는 안정버전으로 고정
           sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-      - name: Init buildozer
+      - name: Create buildozer.spec (pinned)
         run: |
-          buildozer init
-          sed -i 's/title = .*/title = Parental Report/' buildozer.spec
-          sed -i 's/package.name = .*/package.name = parentalreport/' buildozer.spec
-          sed -i 's/package.domain = .*/package.domain = org.kimjoo/' buildozer.spec
-          sed -i 's/requirements = .*/requirements = python3,kivy,pyjnius/' buildozer.spec
-          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
-          sed -i 's/# android.minapi = .*/android.minapi = 24/' buildozer.spec
-          echo "android.sdk_path = $ANDROID_SDK_ROOT" >> buildozer.spec
+          cat > buildozer.spec <<'SPEC'
+          [app]
+          title = Parental Report
+          package.name = parentalreport
+          package.domain = org.kimjoo
+          source.dir = .
+          source.include_exts = py,png,jpg,kv,atlas,json,ttf,otf
+          version = 0.1
+          requirements = python3,kivy,pyjnius
+          orientation = portrait
+          fullscreen = 0
+
+          [buildozer]
+          log_level = 2
+
+          [android]
+          android.api = 33
+          android.minapi = 24
+          android.permissions = INTERNET
+          android.accept_sdk_license = True
+
+          # ✅ Buildozer가 자기 SDK 다시 받지 말고, 우리가 설치한 SDK를 쓰게 강제
+          android.sdk_path = $ANDROID_SDK_ROOT
+          SPEC
 
       - name: Build debug APK
         run: |
+          # 환경변수로도 한 번 더 강제
+          export ANDROIDSDK="$ANDROID_SDK_ROOT"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
           buildozer -v android debug
 
       - name: Upload APK
