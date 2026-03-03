@@ -20,6 +20,7 @@ jobs:
       - name: Install buildozer
         run: |
           pip3 install --upgrade pip
+          pip3 install cython
           pip3 install buildozer
 
       - name: Init buildozer
