@@ -30,8 +30,7 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install cython buildozer
 
-      # ✅ sdkmanager 설치(안드로이드 cmdline-tools)
-      - name: Setup Android SDK cmdline-tools
+      - name: Setup Android SDK cmdline-tools (sdkmanager)
         run: |
           set -e
           ANDROID_SDK_ROOT="$HOME/android-sdk"
@@ -48,7 +47,6 @@ jobs:
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
 
-      # ✅ 라이선스 자동 동의 + 안정 build-tools(33.0.2) 고정 설치
       - name: Accept licenses and install SDK packages
         run: |
           set -e
@@ -58,10 +56,8 @@ jobs:
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-      # ✅ 핵심: buildozer.spec를 우리가 직접 만들고
-      #    - sdk_path를 "실제 경로"로 넣고 (변수 치환되게)
-      #    - build_tools_version을 33.0.2로 고정해서 37-rc2(Preview) 못 쓰게 함
-      - name: Write buildozer.spec (pinned)
+      # ✅ 여기서부터가 제일 중요: buildozer.spec에 실제 SDK 경로가 들어가게 해야 함
+      - name: Write buildozer.spec (PIN build-tools, FORCE sdk_path)
         run: |
           cat > buildozer.spec <<SPEC
           [app]
@@ -84,21 +80,26 @@ jobs:
           android.permissions = INTERNET
           android.accept_sdk_license = True
 
-          # ✅ Preview(37-rc2) 절대 사용하지 않게 고정
+          # ✅ Preview build-tools(37-rc2) 못 쓰게 고정
           android.build_tools_version = 33.0.2
 
-          # ✅ Buildozer가 자기 SDK 다시 받지 말고, 우리가 설치한 SDK를 쓰게 강제
+          # ✅ Buildozer가 ~/.buildozer/android-sdk 새로 받지 못하게, 우리가 설치한 SDK 강제 사용
           android.sdk_path = $ANDROID_SDK_ROOT
           SPEC
 
       - name: Build debug APK
         run: |
+          set -e
           export ANDROIDSDK="$ANDROID_SDK_ROOT"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
+
+          # buildozer 캐시가 이상하면 이 줄을 잠깐 켜도 됨(느려짐)
+          # rm -rf .buildozer ~/.buildozer
+
           buildozer -v android debug
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: apk
