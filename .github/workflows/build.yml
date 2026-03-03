@@ -10,9 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install system deps
+      - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y \
@@ -24,18 +25,19 @@ jobs:
             libncurses5-dev libncursesw5-dev \
             libreadline-dev libsqlite3-dev
 
-      - name: Install python deps
+      - name: Install python dependencies
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install cython buildozer
 
-      - name: Setup Android SDK (cmdline-tools)
+      # ✅ sdkmanager 설치(안드로이드 cmdline-tools)
+      - name: Setup Android SDK cmdline-tools
         run: |
           set -e
-          export ANDROID_SDK_ROOT="$HOME/android-sdk"
+          ANDROID_SDK_ROOT="$HOME/android-sdk"
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-
           cd "$ANDROID_SDK_ROOT"
+
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
           unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
@@ -46,20 +48,22 @@ jobs:
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
 
-      - name: Accept licenses + Install required SDK packages
+      # ✅ 라이선스 자동 동의 + 안정 build-tools(33.0.2) 고정 설치
+      - name: Accept licenses and install SDK packages
         run: |
           set -e
           yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
-
-          # 꼭 필요한 것들 + build-tools는 안정버전으로 고정
           sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2"
 
-      - name: Create buildozer.spec (pinned)
+      # ✅ 핵심: buildozer.spec를 우리가 직접 만들고
+      #    - sdk_path를 "실제 경로"로 넣고 (변수 치환되게)
+      #    - build_tools_version을 33.0.2로 고정해서 37-rc2(Preview) 못 쓰게 함
+      - name: Write buildozer.spec (pinned)
         run: |
-          cat > buildozer.spec <<'SPEC'
+          cat > buildozer.spec <<SPEC
           [app]
           title = Parental Report
           package.name = parentalreport
@@ -80,19 +84,21 @@ jobs:
           android.permissions = INTERNET
           android.accept_sdk_license = True
 
+          # ✅ Preview(37-rc2) 절대 사용하지 않게 고정
+          android.build_tools_version = 33.0.2
+
           # ✅ Buildozer가 자기 SDK 다시 받지 말고, 우리가 설치한 SDK를 쓰게 강제
           android.sdk_path = $ANDROID_SDK_ROOT
           SPEC
 
       - name: Build debug APK
         run: |
-          # 환경변수로도 한 번 더 강제
           export ANDROIDSDK="$ANDROID_SDK_ROOT"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
           buildozer -v android debug
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: apk
