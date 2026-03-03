@@ -3,101 +3,43 @@ name: Build APK
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Buildozer
         run: |
-          sudo apt update
-          sudo apt install -y \
-            python3-pip build-essential git zip unzip \
-            openjdk-17-jdk \
-            libffi-dev libssl-dev \
-            autoconf automake libtool pkg-config \
-            zlib1g-dev liblzma-dev \
-            libncurses5-dev libncursesw5-dev \
-            libreadline-dev libsqlite3-dev
+          pip install --upgrade pip
+          pip install cython buildozer
 
-      - name: Install python dependencies
+      - name: Initialize Buildozer
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install cython buildozer
+          buildozer init
+          sed -i 's/title = .*/title = Parental Report/' buildozer.spec
+          sed -i 's/package.name = .*/package.name = parentalreport/' buildozer.spec
+          sed -i 's/package.domain = .*/package.domain = org.kimjoo/' buildozer.spec
+          sed -i 's/requirements = .*/requirements = python3,kivy,pyjnius/' buildozer.spec
+          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
+          sed -i 's/# android.minapi = .*/android.minapi = 24/' buildozer.spec
 
-      - name: Setup Android SDK cmdline-tools (sdkmanager)
-        run: |
-          set -e
-          ANDROID_SDK_ROOT="$HOME/android-sdk"
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-          cd "$ANDROID_SDK_ROOT"
-
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROIDSDK=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
-
-      - name: Accept licenses and install SDK packages
-        run: |
-          set -e
-          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
-          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2"
-
-      # ✅ 여기서부터가 제일 중요: buildozer.spec에 실제 SDK 경로가 들어가게 해야 함
-      - name: Write buildozer.spec (PIN build-tools, FORCE sdk_path)
-        run: |
-          cat > buildozer.spec <<SPEC
-          [app]
-          title = Parental Report
-          package.name = parentalreport
-          package.domain = org.kimjoo
-          source.dir = .
-          source.include_exts = py,png,jpg,kv,atlas,json,ttf,otf
-          version = 0.1
-          requirements = python3,kivy,pyjnius
-          orientation = portrait
-          fullscreen = 0
-
-          [buildozer]
-          log_level = 2
-
-          [android]
-          android.api = 33
-          android.minapi = 24
-          android.permissions = INTERNET
-          android.accept_sdk_license = True
-
-          # ✅ Preview build-tools(37-rc2) 못 쓰게 고정
-          android.build_tools_version = 33.0.2
-
-          # ✅ Buildozer가 ~/.buildozer/android-sdk 새로 받지 못하게, 우리가 설치한 SDK 강제 사용
-          android.sdk_path = $ANDROID_SDK_ROOT
-          SPEC
-
-      - name: Build debug APK
-        run: |
-          set -e
-          export ANDROIDSDK="$ANDROID_SDK_ROOT"
-          export ANDROID_HOME="$ANDROID_SDK_ROOT"
-          export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
-
-          # buildozer 캐시가 이상하면 이 줄을 잠깐 켜도 됨(느려짐)
-          # rm -rf .buildozer ~/.buildozer
-
-          buildozer -v android debug
+      - name: Build APK
+        run: buildozer android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
